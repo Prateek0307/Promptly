@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+Promptly — By Design (Prompt Engineering Framework Studio)
+================================================================================
+Frontend Single-Page Application (SPA)
+
+Tech Stack & Architecture:
+- HTML5 & CSS3 with Tailwind CSS (Play CDN) for responsive utility-first styling.
+- Google Identity Services (GIS SDK) for OAuth 2.0 Sign-In and One-Tap authentication.
+- Web Speech API (via client-side voice.js) for browser-native voice dictation.
+- Vanilla JavaScript for state management, typewriter animations, and live telemetry.
+- Flask backend API (http://localhost:5000) backed by Google Gemini API & SQLite.
+
+Application Views:
+1. Home View: Displays the prompt engineering frameworks grid (CIF, RTF, RACE, TAG, CRISPE)
+   and the user's personal prompt archive.
+2. Studio Workspace View: Interactive IDE for inputting framework parameters, configuring
+   temperature and token limits, selecting target AI personas, and watching the backend
+   construct the prompt with live word and token telemetry.
+================================================================================
+-->
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Promptly — By Design</title>
+    
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- 1. Google Identity Services (GIS) Client SDK                             -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Loads Google's official OAuth 2.0 client library for rendering the       -->
+    <!-- Sign-In button and handling credential JWT tokens securely.              -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- 2. Tailwind CSS (Play CDN) & Theme Configuration                        -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Loads Tailwind CSS dynamically from CDN and configures custom theme      -->
+    <!-- extensions (color palettes, custom fonts, and entrance animations).     -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Custom Tailwind theme configuration:
+        // Configures dark mode toggling via the 'dark' class on the root <html> tag.
+        tailwind.config = {
+            darkMode: 'class', 
+            theme: {
+                extend: {
+                    colors: {
+                        // Deep slate and navy tones used for dark mode backgrounds and cards
+                        navy: { 700: '#1E293B', 800: '#0F172A', 900: '#0B1120' },
+                        // Earthy olive tones used as primary brand accents and success badges
+                        olive: { 100: '#F0F4E8', 500: '#759752', 600: '#658147', 900: '#2A361D' },
+                        // Warm parchment and paper neutrals used for light mode surfaces
+                        paper: { bg: '#F4F4F0', card: '#FBFBF9', border: '#E6E6E1' },
+                        // High-contrast ink neutrals used for primary and muted typography
+                        ink: { main: '#2C2C2A', muted: '#73736E' },
+                        // Distinct accent colors for each supported AI target engine persona
+                        brand: { 
+                            chatgpt: '#10B981', // OpenAI Emerald
+                            claude: '#F59E0B',  // Anthropic Amber
+                            gemini: '#8B5CF6',  // Google Purple
+                            grok: '#64748B'     // xAI Slate
+                        }
+                    },
+                    fontFamily: { 
+                        sans: ['Inter', 'sans-serif'], 
+                        mono: ['ui-monospace', 'monospace'] 
+                    },
+                    keyframes: {
+                        // Smooth fade and vertical rise entrance
+                        fadeInUp: { 
+                            '0%': { opacity: '0', transform: 'translateY(30px)' }, 
+                            '100%': { opacity: '1', transform: 'translateY(0)' } 
+                        },
+                        // Dramatic masked vertical reveal for hero typography
+                        revealUp: { 
+                            '0%': { transform: 'translateY(120%)' }, 
+                            '100%': { transform: 'translateY(0)' } 
+                        },
+                        // Gentle ambient floating animation
+                        float: { 
+                            '0%, 100%': { transform: 'translateY(0)' }, 
+                            '50%': { transform: 'translateY(-10px)' } 
+                        }
+                    },
+                    animation: {
+                        'fade-in-up': 'fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both',
+                        'reveal-up': 'revealUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both',
+                        'float': 'float 6s ease-in-out infinite'
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- 3. Custom CSS Stylesheet: Sliders, Transitions, and Typewriter Effects  -->
+    <!-- ----------------------------------------------------------------------- -->
+    <style>
+        /* Minimalist slim scrollbars for monospace code output panes */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 4px; }
+        .dark ::-webkit-scrollbar-thumb { background: #374151; }
+
+        /* Interactive input wrappers with smooth focus rings */
+        .ide-input-wrapper { border-radius: 8px; padding: 8px 12px; transition: all 0.2s ease; }
+        .ide-input-wrapper:focus-within { box-shadow: 0 0 0 1px #658147; }
+        .dark .ide-input-wrapper:focus-within { box-shadow: 0 0 0 1px #759752; }
+
+        /* Minimal input styling */
+        .minimal-input { width: 100%; border-radius: 8px; transition: all 0.2s ease; outline: none; border: 1px solid transparent; background-color: #FBFBF9; color: #2C2C2A; border-color: #E6E6E1; }
+        .minimal-input:focus { border-color: #658147; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
+        .dark .minimal-input { background-color: #0F172A; border-color: #1E293B; color: #F3F4F6; }
+        .dark .minimal-input:focus { border-color: #759752; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        
+        /* Custom styled range sliders for Temperature & Token Budget */
+        input[type=range] { -webkit-appearance: none; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #658147; cursor: pointer; margin-top: -6px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+        .dark input[type=range]::-webkit-slider-thumb { background: #759752; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #E6E6E1; border-radius: 2px; }
+        .dark input[type=range]::-webkit-slider-runnable-track { background: #1E293B; }
+
+        /* Glassmorphic framework selection cards with elevation on hover */
+        .framework-card { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; overflow: hidden; background: rgba(251, 251, 249, 0.85); backdrop-filter: blur(12px); }
+        .framework-card:hover { transform: translateY(-6px) !important; box-shadow: 0 20px 40px -15px rgba(0,0,0,0.08); }
+        .dark .framework-card { background: rgba(15, 23, 42, 0.85); }
+        .dark .framework-card:hover { box-shadow: 0 20px 40px -15px rgba(0,0,0,0.6); border-color: #334155; }
+        
+        /* Smooth view section transitions between Home view and Studio view */
+        .view-section { transition: opacity 0.4s ease, transform 0.4s ease; }
+
+        /* Terminal typewriter blinking cursor effect */
+        .typing-cursor::after { content: '|'; animation: blink 1s step-start infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Interactive parameter highlight tags inside generated prompts */
+        /* Clicking a highlight jumps keyboard focus directly to that input field */
+        .param-highlight { background-color: rgba(101, 129, 71, 0.15); color: #2A361D; padding: 0 4px; border-radius: 4px; border-bottom: 1px dashed #658147; cursor: pointer; transition: all 0.2s; }
+        .param-highlight:hover { background-color: rgba(101, 129, 71, 0.3); }
+        .dark .param-highlight { color: #F0F4E8; border-bottom-color: #759752; }
+
+        /* Model selector button active highlight states */
+        .model-btn { border: 1px solid transparent; transition: all 0.3s ease; }
+        .model-btn.selected[data-model="ChatGPT"] { border-color: #10B981; background-color: rgba(16, 185, 129, 0.05); box-shadow: 0 0 0 1px #10B981, 0 4px 12px rgba(16, 185, 129, 0.1); }
+        .model-btn.selected[data-model="Claude"] { border-color: #F59E0B; background-color: rgba(245, 158, 11, 0.05); box-shadow: 0 0 0 1px #F59E0B, 0 4px 12px rgba(245, 158, 11, 0.1); }
+        .model-btn.selected[data-model="Gemini"] { border-color: #8B5CF6; background-color: rgba(139, 92, 246, 0.05); box-shadow: 0 0 0 1px #8B5CF6, 0 4px 12px rgba(139, 92, 246, 0.1); }
+        .model-btn.selected[data-model="Grok"] { border-color: #64748B; background-color: rgba(100, 116, 139, 0.05); box-shadow: 0 0 0 1px #64748B, 0 4px 12px rgba(100, 116, 139, 0.1); }
+
+        /* Modal backdrop and card scale-in transitions */
+        #google-modal-backdrop, #prompt-modal-backdrop { transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        #google-modal-card, #prompt-modal-card { transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+    </style>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- 4. Voice-to-Text Dictation Integration (Web Speech API)                 -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Client-side voice typing engine: Renders microphone icons on form fields -->
+    <!-- and synchronizes speech with the parameter density progress meter.      -->
+    <script src="voice.js"></script>
+</head>
+<body class="flex flex-col min-h-screen text-ink-main dark:text-gray-100 transition-colors duration-300 relative">
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Ambient Background: Gradients & Video Fallback                          -->
+    <!-- ----------------------------------------------------------------------- -->
+    <div class="fixed inset-0 z-[-1] pointer-events-none overflow-hidden bg-paper-bg dark:bg-navy-900">
+        <!-- Ambient decorative radial gradients -->
+        <div class="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-olive-500/5 dark:bg-olive-500/10 blur-[100px]"></div>
+        <div class="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 dark:bg-blue-500/10 blur-[100px]"></div>
+        
+        <!-- Video element with graceful fallback if background.mp4 is not present -->
+        <video autoplay loop muted playsinline class="absolute w-full h-full object-cover opacity-80 dark:opacity-40 mix-blend-multiply dark:mix-blend-lighten" onerror="this.style.display='none'">
+            <source src="background.mp4" type="video/mp4" onerror="this.parentElement.style.display='none'">
+        </video>
+        
+        <!-- Contrast overlay ensuring crisp readability in both dark and light modes -->
+        <div class="absolute inset-0 bg-gradient-to-b from-paper-bg/60 to-paper-bg/95 dark:from-navy-900/70 dark:to-navy-900/95 backdrop-blur-[2px]"></div>
+    </div>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Initial Splash Screen Animation                                         -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Displays a sleek, timed intro animation on first page load              -->
+    <div id="splash-screen" class="fixed inset-0 z-[9999] bg-[#0A0A0A] flex flex-col items-center justify-center transition-transform duration-[1000ms] ease-[0.76,0,0.24,1]">
+        <div class="overflow-hidden mb-4 flex flex-col items-center">
+            <div id="splash-logo" class="font-extrabold text-5xl tracking-tight text-white transform translate-y-[120%] transition-transform duration-[800ms] ease-[0.16,1,0.3,1]">Promptly.</div>
+            <div id="splash-sub" class="text-[0.6rem] uppercase tracking-[0.3em] text-gray-500 mt-2 transform translate-y-[200%] transition-transform duration-[800ms] ease-[0.16,1,0.3,1] delay-100">Initializing Studio Environment</div>
+        </div>
+        <div class="w-48 h-[1px] bg-white/10 relative overflow-hidden mt-6 rounded-full">
+            <div id="splash-progress" class="absolute top-0 left-0 h-full bg-white w-0 transition-all duration-[1000ms] ease-in-out"></div>
+        </div>
+    </div>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Google Authentication Modal Dialog                                      -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Interactive modal rendering Google's official Sign-In button            -->
+    <div id="google-modal-backdrop" class="fixed inset-0 z-[9000] bg-black/50 dark:bg-black/75 backdrop-blur-md hidden opacity-0 flex items-center justify-center p-4">
+        <div id="google-modal-card" class="bg-paper-card dark:bg-navy-800 border border-paper-border dark:border-navy-700 w-full max-w-md rounded-2xl sm:rounded-3xl shadow-2xl transform scale-95 relative overflow-hidden p-6 sm:p-8">
+            <!-- Modal Close Button -->
+            <button onclick="closeGoogleModal()" class="absolute top-4 right-4 z-50 text-ink-muted hover:text-ink-main dark:text-gray-500 dark:hover:text-white transition-colors bg-white/50 dark:bg-black/20 p-2 rounded-full backdrop-blur-sm" title="Close">
+                <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <div class="flex flex-col items-center text-center">
+                <!-- Google "G" Logo Badge -->
+                <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white dark:bg-navy-900 border border-paper-border dark:border-navy-700 shadow-md flex items-center justify-center mb-5">
+                    <svg class="w-7 h-7 sm:w-8 sm:h-8" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                </div>
+
+                <h3 class="text-2xl font-bold tracking-tight text-ink-main dark:text-white mb-2">Sign in with Google</h3>
+                <p class="text-xs sm:text-sm text-ink-muted dark:text-gray-400 font-light mb-6 max-w-xs">
+                    Connect your Google account to construct prompts and sync your personal archive.
+                </p>
+
+                <!-- Warning banner: Automatically displayed if the user opens the file via file:// instead of http://localhost:5000 -->
+                <div id="file-protocol-warning" class="hidden w-full mb-4 p-3.5 bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl text-left text-xs">
+                    <div class="font-bold flex items-center gap-1.5 mb-1 text-sm text-amber-800 dark:text-amber-200">
+                        <span>⚠️</span> Local Server Required
+                    </div>
+                    <p class="leading-relaxed text-[0.7rem] sm:text-xs text-amber-900/90 dark:text-amber-300/90">
+                        Google OAuth blocks requests from <code class="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded font-mono">file://</code>. Please start the app in terminal:
+                        <br><span class="font-mono bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded mt-1 inline-block">python app.py</span>
+                        <br>and open <a href="http://localhost:5000" class="underline font-bold text-amber-900 dark:text-amber-100">http://localhost:5000</a> in your browser.
+                    </p>
+                </div>
+
+                <!-- Google Identity Services Button Container (rendered programmatically by Google GIS SDK) -->
+                <div id="g_id_signin_modal" class="w-full flex justify-center mb-3 min-h-[44px]"></div>
+
+                <!-- Fallback Button (Only displayed if Google SDK cannot load or is blocked by an ad-blocker) -->
+                <button type="button" onclick="triggerGoogleSignIn()" id="btn-custom-google" class="hidden w-full bg-white dark:bg-navy-900 hover:bg-gray-50 dark:hover:bg-navy-700 text-ink-main dark:text-white border border-paper-border dark:border-navy-600 font-medium py-3 px-4 rounded-xl shadow-sm transition-all flex items-center justify-center gap-3 text-sm">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                    <span>Continue with Google</span>
+                </button>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Archive Full Prompt View Modal                                          -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Allows inspecting the complete text of any prompt saved in SQLite       -->
+    <div id="prompt-modal-backdrop" class="fixed inset-0 z-[9500] bg-black/50 dark:bg-black/75 backdrop-blur-md hidden opacity-0 flex items-center justify-center p-4">
+        <div id="prompt-modal-card" class="bg-paper-card dark:bg-navy-800 border border-paper-border dark:border-navy-700 w-full max-w-2xl rounded-2xl sm:rounded-3xl shadow-2xl transform scale-95 relative overflow-hidden p-6 sm:p-8 flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <span id="prompt-modal-framework" class="text-[0.65rem] uppercase tracking-widest text-ink-muted font-bold">FRAMEWORK</span>
+                    <h3 id="prompt-modal-title" class="text-xl sm:text-2xl font-bold text-ink-main dark:text-white mt-1">Prompt Title</h3>
+                    <p id="prompt-modal-date" class="text-[0.65rem] text-ink-muted dark:text-gray-400 mt-0.5"></p>
+                </div>
+                <button onclick="closePromptModal()" class="text-ink-muted hover:text-ink-main dark:text-gray-400 dark:hover:text-white p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <!-- Monospace preformatted prompt body container -->
+            <div class="flex-grow overflow-y-auto bg-white/50 dark:bg-navy-900/50 border border-paper-border/60 dark:border-navy-700/60 rounded-xl p-4 sm:p-5 mb-5 shadow-inner">
+                <pre id="prompt-modal-text" class="whitespace-pre-wrap font-mono text-xs sm:text-sm text-ink-main dark:text-gray-200 leading-relaxed"></pre>
+            </div>
+            <!-- Modal Action Buttons -->
+            <div class="flex justify-end gap-3">
+                <button onclick="closePromptModal()" class="px-4 py-2 text-xs font-semibold rounded-lg border border-paper-border dark:border-navy-700 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">Close</button>
+                <button onclick="copyModalPrompt()" class="px-5 py-2 text-xs font-semibold rounded-lg bg-ink-main text-white dark:bg-white dark:text-navy-800 hover:opacity-90 transition-opacity">Copy Full Prompt</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Toast Notifications Container                                           -->
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Fixed position container where interactive feedback toasts are mounted  -->
+    <div id="toast-container" class="fixed bottom-4 sm:bottom-6 right-4 sm:right-6 z-[9999] flex flex-col gap-3 pointer-events-none"></div>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Sticky Application Header & Navigation Bar                              -->
+    <!-- ----------------------------------------------------------------------- -->
+    <header class="sticky top-0 z-50 bg-paper-bg/70 dark:bg-navy-900/70 backdrop-blur-xl border-b border-paper-border/50 dark:border-navy-700/50 px-5 sm:px-8 py-4 sm:py-5 flex justify-between items-center transition-colors duration-300 opacity-0 animate-fade-in-up" style="animation-delay: 1.6s;">
+        <!-- Brand Logo and Tagline -->
+        <div class="flex items-center gap-3">
+            <span class="font-extrabold text-lg sm:text-xl tracking-tight text-ink-main dark:text-white cursor-pointer" onclick="goHome()">Promptly.</span>
+            <span class="hidden sm:inline-block text-[0.65rem] tracking-widest uppercase text-ink-muted border-l border-paper-border dark:border-navy-700 pl-3">Design Engine</span>
+        </div>
+        
+        <!-- Navigation Controls: Dark Mode Toggle and Dynamic Auth Area -->
+        <div class="flex items-center gap-3 sm:gap-4">
+            <!-- Theme Toggle Button -->
+            <button onclick="toggleTheme()" class="text-ink-muted hover:text-ink-main dark:text-gray-400 dark:hover:text-white transition-colors p-2 rounded-full hover:bg-white/40 dark:hover:bg-navy-800/50 border border-paper-border/40 dark:border-navy-700/50" title="Toggle dark/light theme">
+                <svg id="sun-icon" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                <svg id="moon-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+            </button>
+            
+            <!-- Auth Container (Swaps dynamically between "Sign in with Google" button and User Profile menu) -->
+            <div id="nav-auth-area"></div>
+        </div>
+    </header>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Main Content Container: Home View & Studio Workspace                    -->
+    <!-- ----------------------------------------------------------------------- -->
+    <main class="flex-grow w-full max-w-7xl mx-auto px-5 sm:px-8 py-12 sm:py-16 overflow-x-hidden relative z-10">
+        
+        <!-- =================================================================== -->
+        <!-- VIEW 1: HOME VIEW (Framework Selection & User Archive)               -->
+        <!-- =================================================================== -->
+        <div id="home-view" class="space-y-20 sm:space-y-28 view-section">
+            <!-- Hero Title & Masked Reveal Typography -->
+            <section class="max-w-3xl">
+                <div class="text-[0.65rem] sm:text-[0.7rem] uppercase tracking-[0.2em] font-semibold text-ink-muted dark:text-gray-500 mb-6 sm:mb-8 opacity-0 animate-fade-in-up" style="animation-delay: 1.4s;">
+                    Prompt Engineering
+                </div>
+                
+                <!-- Masked reveal headline -->
+                <div class="overflow-hidden mt-1 sm:mt-2">
+                    <h1 class="text-5xl sm:text-6xl md:text-[5.5rem] font-extrabold tracking-tighter leading-[1.1] sm:leading-[1.05] pb-6 -mb-4 bg-clip-text text-transparent bg-gradient-to-r from-ink-main to-[#73736E] dark:from-white dark:to-gray-400 transform translate-y-[120%] animate-reveal-up" style="animation-delay: 1.5s;">
+                        Better prompts,
+                    </h1>
+                </div>
+                <div class="overflow-hidden mt-1 sm:mt-2">
+                    <h1 class="text-5xl sm:text-6xl md:text-[5.5rem] font-extrabold tracking-tighter leading-[1.1] sm:leading-[1.05] pb-6 -mb-4 bg-clip-text text-transparent bg-gradient-to-r from-[#73736E] to-ink-main dark:from-gray-400 dark:to-white opacity-70 font-normal transform translate-y-[120%] animate-reveal-up" style="animation-delay: 1.6s;">
+                        by design.
+                    </h1>
+                </div>
+                
+                <p class="text-lg sm:text-xl text-ink-muted dark:text-gray-300 font-medium leading-relaxed max-w-2xl opacity-0 animate-fade-in-up mt-6 sm:mt-8" style="animation-delay: 1.7s;">
+                    Select a framework to access its dedicated studio. Define the parameters, and let the backend construct a scalable prompt optimized for AI models.
+                </p>
+            </section>
+
+            <!-- Frameworks Selection Cards Grid -->
+            <section>
+                <div class="flex justify-between items-end border-b border-paper-border/50 dark:border-navy-700/50 pb-4 sm:pb-6 mb-8 sm:mb-12 opacity-0 animate-fade-in-up" style="animation-delay: 1.8s;">
+                    <h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-ink-main dark:text-white">The Frameworks</h2>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                    <!-- Framework 1: CIF (Clear Instruction Framing) -->
+                    <div class="framework-card animate-fade-in-up border border-paper-border/30 dark:border-navy-600/30 rounded-xl sm:rounded-2xl p-6 sm:p-8 cursor-pointer flex flex-col h-full" style="animation-delay: 1.9s;" onclick="openStudio('CIF')">
+                        <div class="w-8 h-8 rounded border border-paper-border dark:border-navy-600 flex items-center justify-center font-mono text-xs font-semibold mb-6 sm:mb-8 text-ink-main dark:text-white">A</div>
+                        <div class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest text-ink-muted font-medium mb-2 sm:mb-3">CIF</div>
+                        <h3 class="text-lg sm:text-xl font-semibold tracking-tight text-ink-main dark:text-white mb-2 sm:mb-3">Clear Instruction Framing</h3>
+                        <p class="text-ink-muted dark:text-gray-400 text-xs sm:text-sm leading-relaxed mt-auto font-light">Give the model one clear task — action verb, scope, depth, success criteria.</p>
+                    </div>
+
+                    <!-- Framework 2: RTF (The Daily Driver - Featured Prominent Card) -->
+                    <div class="framework-card animate-fade-in-up md:col-span-2 !bg-ink-main/95 dark:!bg-white/95 border !border-ink-main dark:!border-white rounded-xl sm:rounded-2xl p-6 sm:p-8 cursor-pointer flex flex-col md:flex-row gap-6 sm:gap-8 justify-between group" style="animation-delay: 2.0s;" onclick="openStudio('RTF')">
+                        <div class="flex flex-col h-full">
+                            <div class="w-8 h-8 rounded border border-ink-muted dark:border-gray-200 flex items-center justify-center font-mono text-xs font-semibold mb-6 sm:mb-8 text-paper-bg dark:text-navy-800">B</div>
+                            <div class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest text-[#A0A09B] dark:text-gray-500 font-medium mb-2 sm:mb-3">The Daily Driver</div>
+                            <h3 class="text-2xl sm:text-3xl font-semibold tracking-tight text-paper-bg dark:text-navy-800 mb-2 sm:mb-3">Role · Task · Format</h3>
+                            <p class="text-[#A0A09B] dark:text-gray-500 text-xs sm:text-sm leading-relaxed mt-auto font-light max-w-sm">The fastest, most reliable everyday framework. Give it a hat, a job, and a shape.</p>
+                        </div>
+                    </div>
+
+                    <!-- Framework 3: RACE (Role · Action · Context · Expectation) -->
+                    <div class="framework-card animate-fade-in-up border border-paper-border/30 dark:border-navy-600/30 rounded-xl sm:rounded-2xl p-6 sm:p-8 cursor-pointer flex flex-col h-full" style="animation-delay: 2.1s;" onclick="openStudio('RACE')">
+                        <div class="w-8 h-8 rounded border border-paper-border dark:border-navy-600 flex items-center justify-center font-mono text-xs font-semibold mb-6 sm:mb-8 text-ink-main dark:text-white">C</div>
+                        <div class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest text-ink-muted font-medium mb-2 sm:mb-3">RACE</div>
+                        <h3 class="text-lg sm:text-xl font-semibold tracking-tight text-ink-main dark:text-white mb-2 sm:mb-3">Role · Action · Context</h3>
+                        <p class="text-ink-muted dark:text-gray-400 text-xs sm:text-sm leading-relaxed mt-auto font-light">Add context and explicit expectations. The workhorse for serious prompts.</p>
+                    </div>
+
+                    <!-- Framework 4: TAG (Task · Action · Goal) -->
+                    <div class="framework-card animate-fade-in-up border border-paper-border/30 dark:border-navy-600/30 rounded-xl sm:rounded-2xl p-6 sm:p-8 cursor-pointer flex flex-col h-full" style="animation-delay: 2.2s;" onclick="openStudio('TAG')">
+                        <div class="w-8 h-8 rounded border border-paper-border dark:border-navy-600 flex items-center justify-center font-mono text-xs font-semibold mb-6 sm:mb-8 text-ink-main dark:text-white">D</div>
+                        <div class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest text-ink-muted font-medium mb-2 sm:mb-3">TAG</div>
+                        <h3 class="text-lg sm:text-xl font-semibold tracking-tight text-ink-main dark:text-white mb-2 sm:mb-3">Task · Action · Goal</h3>
+                        <p class="text-ink-muted dark:text-gray-400 text-xs sm:text-sm leading-relaxed mt-auto font-light">Outcome-first prompting. State the task, the action, and the specific goal.</p>
+                    </div>
+
+                    <!-- Framework 5: CRISPE (Capacity · Role · Insight · Statement · Personality · Experiment) -->
+                    <div class="framework-card animate-fade-in-up border border-paper-border/30 dark:border-navy-600/30 rounded-xl sm:rounded-2xl p-6 sm:p-8 cursor-pointer flex flex-col h-full" style="animation-delay: 2.3s;" onclick="openStudio('CRISPE')">
+                        <div class="w-8 h-8 rounded border border-paper-border dark:border-navy-600 flex items-center justify-center font-mono text-xs font-semibold mb-6 sm:mb-8 text-ink-main dark:text-white">E</div>
+                        <div class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest text-ink-muted font-medium mb-2 sm:mb-3">CRISPE</div>
+                        <h3 class="text-lg sm:text-xl font-semibold tracking-tight text-ink-main dark:text-white mb-2 sm:mb-3">Capacity · Role · Insight</h3>
+                        <p class="text-ink-muted dark:text-gray-400 text-xs sm:text-sm leading-relaxed mt-auto font-light">The heavy framework. Use when the answer needs depth, perspective, and variation.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- User Saved Prompts Archive Section -->
+            <section class="opacity-0 animate-fade-in-up pb-16" style="animation-delay: 2.4s;">
+                <div class="flex justify-between items-end border-b border-paper-border/50 dark:border-navy-700/50 pb-4 sm:pb-6 mb-8 sm:mb-12">
+                    <div>
+                        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight text-ink-main dark:text-white">Personal Prompt Archive</h2>
+                        <p class="text-xs sm:text-sm text-ink-muted dark:text-gray-400 font-light mt-1">Saved prompt engineering artifacts synced with your Google account.</p>
+                    </div>
+                    <button onclick="loadLibrary()" class="text-xs font-semibold text-olive-600 dark:text-olive-400 hover:underline flex items-center gap-1">
+                        <span>Refresh</span>
+                        <span>↺</span>
+                    </button>
+                </div>
+                <!-- Dynamic Archive Grid populated from GET /api/prompts -->
+                <div id="library-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6"></div>
+            </section>
+        </div>
+
+        <!-- =================================================================== -->
+        <!-- VIEW 2: STUDIO WORKSPACE VIEW (Active Prompt Construction)          -->
+        <!-- =================================================================== -->
+        <div id="studio-view" style="display: none;" class="pb-16 sm:pb-20 view-section opacity-0 translate-y-10">
+            <!-- Back to Index Button -->
+            <button onclick="goHome()" class="flex items-center gap-2 text-xs sm:text-sm text-ink-main hover:text-ink-muted dark:text-gray-200 dark:hover:text-white transition-colors mb-10 sm:mb-16 font-semibold bg-white/40 dark:bg-black/40 backdrop-blur-md px-4 py-2 rounded-full shadow-sm w-max">
+                <span>←</span><span class="font-medium">Index</span>
+            </button>
+            
+            <!-- Framework Header Banner -->
+            <div class="mb-10 sm:mb-16 max-w-2xl bg-paper-bg/60 dark:bg-navy-900/60 backdrop-blur-lg p-6 sm:p-8 rounded-3xl border border-white/20 shadow-xl">
+                <div class="text-[0.65rem] sm:text-[0.7rem] uppercase tracking-widest text-ink-muted dark:text-gray-400 font-medium mb-3 sm:mb-4" id="s-acronym">FRAMEWORK</div>
+                <h1 class="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-ink-main dark:text-white mb-4 sm:mb-6" id="s-name">Framework Name</h1>
+                <p class="text-base sm:text-lg text-ink-muted dark:text-gray-300 font-light leading-relaxed" id="s-tagline">Framework tagline goes here.</p>
+            </div>
+
+            <!-- Two-Column Studio Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16">
+                <!-- Left Column: Input Parameter Controls (4 cols on lg screens) -->
+                <div class="lg:col-span-4 flex flex-col bg-paper-card/80 dark:bg-navy-800/80 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/20 shadow-lg">
+                    <!-- Section Title & Density Indicator -->
+                    <div class="flex justify-between items-center border-b border-paper-border/50 dark:border-navy-700/50 pb-3 sm:pb-4 mb-5 sm:mb-6">
+                        <h3 class="text-xs sm:text-sm font-semibold text-ink-main dark:text-white">Parameters</h3>
+                        <div class="text-[0.55rem] sm:text-[0.65rem] uppercase tracking-widest text-ink-muted font-medium flex items-center gap-2">
+                            <span>Density</span>
+                            <div class="w-12 sm:w-16 h-1.5 bg-paper-border dark:bg-navy-700 rounded-full overflow-hidden">
+                                <div id="readiness-bar" class="h-full bg-olive-500 transition-all duration-300 w-0"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Dynamic Parameter Input Fields Form -->
+                    <form id="dynamic-form" class="space-y-4 sm:space-y-6"></form>
+
+                    <!-- Target AI Engine Picker (Up to 2 models for comparative dual canvas) -->
+                    <div class="mt-8 sm:mt-10">
+                        <div class="flex justify-between items-end mb-3 sm:mb-4">
+                            <div class="text-[0.65rem] sm:text-xs font-semibold text-ink-main dark:text-white">Target Engine(s)</div>
+                            <div class="text-[0.55rem] sm:text-[0.65rem] text-ink-muted uppercase tracking-wider">Select up to 2</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 sm:gap-3">
+                            <button type="button" id="btn-ChatGPT" data-model="ChatGPT" onclick="selectModel('ChatGPT', this)" class="model-btn selected bg-paper-card/90 dark:bg-navy-800/90 border-paper-border dark:border-navy-700 rounded-lg p-2.5 sm:p-3 flex items-center justify-between">
+                                <span class="text-xs font-medium text-ink-main dark:text-gray-200">ChatGPT</span>
+                                <span class="w-2 h-2 rounded-full bg-brand-chatgpt"></span>
+                            </button>
+                            <button type="button" id="btn-Claude" data-model="Claude" onclick="selectModel('Claude', this)" class="model-btn bg-paper-card/90 dark:bg-navy-800/90 border-paper-border dark:border-navy-700 rounded-lg p-2.5 sm:p-3 flex items-center justify-between">
+                                <span class="text-xs font-medium text-ink-main dark:text-gray-200">Claude</span>
+                                <span class="w-2 h-2 rounded-full bg-brand-claude"></span>
+                            </button>
+                            <button type="button" id="btn-Gemini" data-model="Gemini" onclick="selectModel('Gemini', this)" class="model-btn bg-paper-card/90 dark:bg-navy-800/90 border-paper-border dark:border-navy-700 rounded-lg p-2.5 sm:p-3 flex items-center justify-between">
+                                <span class="text-xs font-medium text-ink-main dark:text-gray-200">Gemini</span>
+                                <span class="w-2 h-2 rounded-full bg-brand-gemini"></span>
+                            </button>
+                            <button type="button" id="btn-Grok" data-model="Grok" onclick="selectModel('Grok', this)" class="model-btn bg-paper-card/90 dark:bg-navy-800/90 border-paper-border dark:border-navy-700 rounded-lg p-2.5 sm:p-3 flex items-center justify-between">
+                                <span class="text-xs font-medium text-ink-main dark:text-gray-200">Grok</span>
+                                <span class="w-2 h-2 rounded-full bg-brand-grok"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Creativity Temperature & Max Tokens Sliders -->
+                    <div class="mt-8 space-y-5">
+                        <!-- Temperature Slider -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1.5 sm:mb-2">
+                                <label class="text-[0.55rem] sm:text-[0.65rem] uppercase tracking-widest font-semibold text-ink-muted">Temperature</label>
+                                <div class="flex items-center gap-2">
+                                    <span id="desc-temp" class="text-[0.6rem] font-semibold text-olive-600 dark:text-olive-400">Balanced &amp; Structured</span>
+                                    <span id="val-temp" class="text-[0.65rem] sm:text-xs font-mono font-bold text-ink-main dark:text-gray-200 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded">0.7</span>
+                                </div>
+                            </div>
+                            <input type="range" id="param-temp" min="0.0" max="1.5" step="0.1" value="0.7" class="w-full" oninput="updateTempDisplay(this.value)">
+                            <div class="flex justify-between text-[0.55rem] text-ink-muted mt-1 font-mono">
+                                <span>0.0 Strict</span>
+                                <span>0.7 Balanced</span>
+                                <span>1.5 Creative</span>
+                            </div>
+                        </div>
+
+                        <!-- Token Budget Slider -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1.5 sm:mb-2">
+                                <label class="text-[0.55rem] sm:text-[0.65rem] uppercase tracking-widest font-semibold text-ink-muted">Token Budget</label>
+                                <div class="flex items-center gap-2">
+                                    <span id="desc-tokens" class="text-[0.6rem] font-semibold text-olive-600 dark:text-olive-400">Compact (~154w)</span>
+                                    <span id="val-tokens" class="text-[0.65rem] sm:text-xs font-mono font-bold text-ink-main dark:text-gray-200 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded">512</span>
+                                </div>
+                            </div>
+                            <input type="range" id="param-tokens" min="256" max="4096" step="128" value="512" class="w-full" oninput="updateTokensDisplay(this.value)">
+                            <div class="flex justify-between text-[0.55rem] text-ink-muted mt-1 font-mono">
+                                <span>256 Mini</span>
+                                <span>512 Compact</span>
+                                <span>1536 Standard</span>
+                                <span>4096 Blueprint</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Construct Payload Action Button -->
+                    <button type="button" onclick="generatePrompt()" id="generate-btn" class="mt-6 sm:mt-8 bg-ink-main hover:bg-[#1A1A18] dark:bg-white dark:hover:bg-gray-200 text-paper-bg dark:text-navy-800 py-3.5 sm:py-4 px-6 sm:px-8 rounded-xl text-sm sm:text-base font-semibold w-full transition-all duration-300 shadow-xl hover:shadow-2xl relative overflow-hidden group">
+                        <span class="relative z-10">Construct Payload</span>
+                    </button>
+                </div>
+
+                <!-- Right Column: Workspace Canvas Outputs (8 cols on lg screens) -->
+                <div class="lg:col-span-8 flex flex-col">
+                    <!-- Canvas Toolbar (Copy Canvas & Save Output) -->
+                    <div class="flex justify-between items-center border-b border-paper-border/50 dark:border-navy-700/50 pb-3 sm:pb-4 mb-5 sm:mb-6 mt-8 lg:mt-0 bg-paper-bg/60 dark:bg-navy-900/60 backdrop-blur-lg px-6 py-4 rounded-2xl shadow-sm border border-white/20">
+                        <h3 class="text-xs sm:text-sm font-semibold text-ink-main dark:text-white">Workspace Canvas</h3>
+                        <div id="action-buttons" class="hidden gap-2">
+                            <button type="button" onclick="copyPrompt(1)" class="text-[0.6rem] sm:text-[0.7rem] uppercase tracking-wider font-semibold px-2 sm:px-3 py-1.5 border border-paper-border dark:border-navy-600 rounded hover:border-ink-main dark:hover:border-white transition-colors bg-white/80 dark:bg-navy-800/80">Copy Canvas</button>
+                            <button type="button" onclick="savePrompt(1)" class="text-[0.6rem] sm:text-[0.7rem] uppercase tracking-wider font-semibold px-2 sm:px-3 py-1.5 bg-ink-main text-white dark:bg-white dark:text-navy-800 rounded hover:bg-opacity-90 transition-colors">Save Output</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Output Canvas Grid (1 or 2 panes based on selected models count) -->
+                    <div id="output-grid" class="grid grid-cols-1 gap-4 sm:gap-6 w-full relative">
+                        <!-- Output Pane 1 with Word/Token Telemetry & Dynamic AI Loading Facts -->
+                        <div id="pane-1" class="relative bg-paper-card/85 dark:bg-navy-800/85 backdrop-blur-xl border border-white/30 dark:border-navy-700 rounded-3xl overflow-hidden shadow-xl flex flex-col min-h-[350px] sm:min-h-[500px]">
+                            
+                            <div class="relative z-10 px-4 sm:px-6 py-3 sm:py-4 border-b border-paper-border/50 dark:border-navy-700/50 bg-white/40 dark:bg-navy-900/40 flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <div id="badge-1" class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest font-bold text-ink-main dark:text-white">Model 1</div>
+                                    <div class="flex items-center gap-1.5 ml-2">
+                                        <button type="button" onclick="copyPrompt(1)" title="Copy Pane 1" class="px-2 py-0.5 rounded text-[0.6rem] font-semibold border border-paper-border dark:border-navy-600 hover:bg-white/60 dark:hover:bg-navy-700 transition-colors">Copy</button>
+                                        <button type="button" onclick="savePrompt(1)" title="Save Pane 1" class="px-2 py-0.5 rounded text-[0.6rem] font-semibold bg-olive-600 hover:bg-olive-500 text-white transition-colors">Save</button>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3 sm:gap-4 text-[0.55rem] sm:text-[0.65rem] uppercase tracking-widest font-semibold text-ink-muted">
+                                    <div>Tok: <span id="tel-tokens-1" class="text-ink-main dark:text-gray-300">0</span></div>
+                                    <div>Wrd: <span id="tel-words-1" class="text-ink-main dark:text-gray-300">0</span></div>
+                                </div>
+                            </div>
+                            
+                            <div class="relative z-10 p-5 sm:p-8 flex-grow overflow-y-auto">
+                                <!-- Loading Spinner & Fact Carousel -->
+                                <div id="skeleton-1" class="hidden flex-col items-center justify-center h-full min-h-[250px] opacity-80 pt-10">
+                                    <div class="w-8 h-8 border-2 border-paper-border dark:border-navy-600 border-t-ink-main dark:border-t-white rounded-full animate-spin mb-4"></div>
+                                    <div id="fact-box-1" class="text-[0.7rem] sm:text-[0.75rem] text-ink-muted dark:text-gray-300 text-center max-w-sm px-4 font-medium italic transition-opacity duration-500 opacity-0">Waking up the engine...</div>
+                                </div>
+                                <!-- Output Text Box -->
+                                <div id="output-1" class="font-mono text-[0.75rem] sm:text-[0.85rem] leading-[1.7] sm:leading-[1.8] text-ink-main dark:text-gray-200 whitespace-pre-wrap break-words">Awaiting payload...</div>
+                            </div>
+                        </div>
+
+                        <!-- Output Pane 2 (Shown when 2 models are selected for comparison) -->
+                        <div id="pane-2" class="hidden relative bg-paper-card/85 dark:bg-navy-800/85 backdrop-blur-xl border border-white/30 dark:border-navy-700 rounded-3xl overflow-hidden shadow-xl flex-col min-h-[350px] sm:min-h-[500px]">
+                            <div class="relative z-10 px-4 sm:px-6 py-3 sm:py-4 border-b border-paper-border/50 dark:border-navy-700/50 bg-white/40 dark:bg-navy-900/40 flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <div id="badge-2" class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest font-bold text-ink-main dark:text-white">Model 2</div>
+                                    <div class="flex items-center gap-1.5 ml-2">
+                                        <button type="button" onclick="copyPrompt(2)" title="Copy Pane 2" class="px-2 py-0.5 rounded text-[0.6rem] font-semibold border border-paper-border dark:border-navy-600 hover:bg-white/60 dark:hover:bg-navy-700 transition-colors">Copy</button>
+                                        <button type="button" onclick="savePrompt(2)" title="Save Pane 2" class="px-2 py-0.5 rounded text-[0.6rem] font-semibold bg-olive-600 hover:bg-olive-500 text-white transition-colors">Save</button>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3 sm:gap-4 text-[0.55rem] sm:text-[0.65rem] uppercase tracking-widest font-semibold text-ink-muted">
+                                    <div>Tok: <span id="tel-tokens-2" class="text-ink-main dark:text-gray-300">0</span></div>
+                                    <div>Wrd: <span id="tel-words-2" class="text-ink-main dark:text-gray-300">0</span></div>
+                                </div>
+                            </div>
+                            <div class="relative z-10 p-5 sm:p-8 flex-grow overflow-y-auto">
+                                <!-- Loading Spinner & Fact Carousel -->
+                                <div id="skeleton-2" class="hidden flex-col items-center justify-center h-full min-h-[250px] opacity-80 pt-10">
+                                    <div class="w-8 h-8 border-2 border-paper-border dark:border-navy-600 border-t-ink-main dark:border-t-white rounded-full animate-spin mb-4"></div>
+                                    <div id="fact-box-2" class="text-[0.7rem] sm:text-[0.75rem] text-ink-muted dark:text-gray-300 text-center max-w-sm px-4 font-medium italic transition-opacity duration-500 opacity-0">Waking up the engine...</div>
+                                </div>
+                                <!-- Output Text Box -->
+                                <div id="output-2" class="font-mono text-[0.75rem] sm:text-[0.85rem] leading-[1.7] sm:leading-[1.8] text-ink-main dark:text-gray-200 whitespace-pre-wrap break-words">Awaiting payload...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Application Footer                                                      -->
+    <!-- ----------------------------------------------------------------------- -->
+    <footer class="border-t border-paper-border/30 dark:border-navy-700/50 py-8 sm:py-10 px-5 sm:px-8 text-center sm:text-left flex flex-col sm:flex-row justify-between text-[0.65rem] sm:text-xs text-ink-muted dark:text-gray-300 font-medium tracking-wide uppercase relative z-10 bg-paper-bg/40 dark:bg-navy-900/40 backdrop-blur-md transition-colors duration-300 opacity-0 animate-fade-in-up" style="animation-delay: 2.5s;">
+        <div>Promptly Framework Studio</div>
+        <div class="mt-3 sm:mt-0">© 2026 · Local Deployment</div>
+    </footer>
+
+    <!-- ----------------------------------------------------------------------- -->
+    <!-- Application Client-Side JavaScript Engine                               -->
+    <!-- ----------------------------------------------------------------------- -->
+    <script>
+        // =====================================================================
+        // SECTION 1: GLOBAL AUTHENTICATION STATE & NETWORK CONFIGURATION
+        // =====================================================================
+        // Google OAuth 2.0 Web Client ID registered in Google Cloud Console
+        const GOOGLE_CLIENT_ID = '775976318006-09tiitv9oma0mr12vos785rn3t04j1rh.apps.googleusercontent.com';
+        
+        // Base API endpoint URL:
+        // Uses relative path '' when running over HTTP (localhost:5000), or fallback to http://localhost:5000
+        const API_BASE = window.location.protocol.startsWith('http') ? '' : 'http://localhost:5000';
+
+        // Boolean flag indicating if a valid user is logged in
+        let isAuthenticated = false;
+        
+        // Active user profile object: { name, email, picture, sub, idToken }
+        let currentUser = null;
+
+        // In-memory cache of saved prompt objects retrieved from the SQLite backend
+        let loadedPromptsCache = [];
+
+        // =====================================================================
+        // SECTION 2: EDUCATIONAL AI FACTS & PROMPT ENGINEERING TIPS
+        // =====================================================================
+        // Rotating tips displayed inside the loading skeletons during generation
+        const aiFacts = [
+            "In 2017, the landmark paper 'Attention Is All You Need' introduced the Transformer architecture.",
+            "Temperature controls sampling entropy. Values near 0.2 yield deterministic outputs; values near 1.0 enhance diversity.",
+            "Chain-of-Thought (CoT) prompting encourages models to generate step-by-step reasoning steps before final answers.",
+            "Few-shot prompting provides 2–3 exemplar input/output pairs to prime the target response format.",
+            "XML tags like <instructions> and <context> significantly improve prompt parsing in Anthropic Claude models.",
+            "Negative constraints ('Do not write code') are often less effective than affirmative instructions ('Write high-level pseudocode only').",
+            "Context window length determines how much background history an LLM can retain simultaneously.",
+            "System prompts anchor the foundational persona and safety guidelines for the entirety of an LLM session."
+        ];
+
+        // Dictionary holding timer intervals for each canvas pane's fact rotator
+        let factIntervals = {};
+
+        /**
+         * Starts cycling through AI prompt tips inside the skeleton loading box.
+         * @param {number} paneNum - Output pane index (1 or 2).
+         */
+        function startFactRotation(paneNum) {
+            const factBox = document.getElementById(`fact-box-${paneNum}`);
+            if (!factBox) return;
+            
+            factBox.textContent = aiFacts[Math.floor(Math.random() * aiFacts.length)];
+            factBox.style.opacity = '1';
+
+            if (factIntervals[paneNum]) clearInterval(factIntervals[paneNum]);
+            
+            factIntervals[paneNum] = setInterval(() => {
+                factBox.style.opacity = '0';
+                setTimeout(() => {
+                    factBox.textContent = aiFacts[Math.floor(Math.random() * aiFacts.length)];
+                    factBox.style.opacity = '1';
+                }, 400);
+            }, 4000);
+        }
+
+        /**
+         * Clears all active fact rotation intervals and resets state.
+         */
+        function stopFactRotation() {
+            Object.keys(factIntervals).forEach(key => clearInterval(factIntervals[key]));
+            factIntervals = {};
+        }
+
+        // =====================================================================
+        // SECTION 3: APPLICATION LIFECYCLE & INITIALIZATION
+        // =====================================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            // Step 1: Orchestrate splash screen animated intro sequence
+            setTimeout(() => { 
+                const logo = document.getElementById('splash-logo');
+                if (logo) logo.classList.remove('translate-y-[120%]'); 
+            }, 50);
+            setTimeout(() => { 
+                const sub = document.getElementById('splash-sub');
+                if (sub) sub.classList.remove('translate-y-[200%]'); 
+            }, 150);
+            setTimeout(() => { 
+                const progress = document.getElementById('splash-progress');
+                if (progress) progress.style.width = '100%'; 
+            }, 200);
+            setTimeout(() => { 
+                const splash = document.getElementById('splash-screen');
+                if (splash) splash.classList.add('-translate-y-full'); 
+            }, 1200);
+            setTimeout(() => { 
+                const splash = document.getElementById('splash-screen');
+                if (splash) splash.style.display = 'none'; 
+            }, 2300);
+
+            // Step 2: Protocol check: Warn if opened directly via file:// rather than http://localhost:5000
+            if (window.location.protocol === 'file:') {
+                const warningBanner = document.getElementById('file-protocol-warning');
+                if (warningBanner) warningBanner.classList.remove('hidden');
+            }
+
+            // Step 3: Restore previous Google session from browser localStorage
+            restoreGoogleSession();
+
+            // Step 4: Initialize Google Identity Services SDK
+            initGoogleAuth();
+
+            // Step 5: Fetch personal prompt archive & configure canvas grid
+            loadLibrary(); 
+            updateOutputGrid();
+
+            // Step 6: Initialize temperature and token budget sliders
+            updateTempDisplay(0.7);
+            updateTokensDisplay(512);
+        });
+
+        // =====================================================================
+        // SECTION 4: GOOGLE IDENTITY & AUTHENTICATION ENGINE
+        // =====================================================================
+
+        /**
+         * Opens the Google Sign-In modal dialog with backdrop blur.
+         */
+        function openGoogleModal() {
+            const backdrop = document.getElementById('google-modal-backdrop');
+            const card = document.getElementById('google-modal-card');
+            backdrop.classList.remove('hidden'); void backdrop.offsetWidth; 
+            backdrop.classList.remove('opacity-0'); card.classList.remove('scale-95');
+            renderGoogleButtons();
+        }
+
+        /**
+         * Closes the Google Sign-In modal smoothly.
+         */
+        function closeGoogleModal() {
+            const backdrop = document.getElementById('google-modal-backdrop');
+            const card = document.getElementById('google-modal-card');
+            backdrop.classList.add('opacity-0'); card.classList.add('scale-95');
+            setTimeout(() => backdrop.classList.add('hidden'), 400); 
+        }
+
+        /**
+         * Initializes the Google Identity Services client using our Client ID.
+         */
+        function initGoogleAuth() {
+            if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+                // If the Google SDK is still downloading, retry in 300ms
+                setTimeout(initGoogleAuth, 300);
+                return;
+            }
+
+            try {
+                google.accounts.id.initialize({
+                    client_id: GOOGLE_CLIENT_ID,
+                    callback: handleGoogleCredentialResponse,
+                    auto_select: false,
+                    cancel_on_tap_outside: true
+                });
+                renderGoogleButtons();
+            } catch (err) {
+                console.warn("[Google Auth] Initialization notice:", err);
+            }
+        }
+
+        /**
+         * Renders the official Google Sign-In button inside the modal dialog.
+         */
+        function renderGoogleButtons() {
+            const modalBtn = document.getElementById('g_id_signin_modal');
+            const customBtn = document.getElementById('btn-custom-google');
+            
+            // If Google SDK is not available, reveal the custom fallback button
+            if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+                if (customBtn) customBtn.classList.remove('hidden');
+                return;
+            }
+
+            if (modalBtn) {
+                modalBtn.innerHTML = '';
+                try {
+                    google.accounts.id.renderButton(modalBtn, {
+                        type: 'standard',
+                        theme: document.documentElement.classList.contains('dark') ? 'filled_black' : 'outline',
+                        size: 'large',
+                        shape: 'rectangular',
+                        width: 320,
+                        text: 'continue_with',
+                        logo_alignment: 'left'
+                    });
+                    // Hide the custom fallback button once the official button renders
+                    if (customBtn) customBtn.classList.add('hidden');
+                } catch(e) {
+                    console.warn("[Google Auth] renderButton notice:", e);
+                    if (customBtn) customBtn.classList.remove('hidden');
+                }
+            }
+        }
+
+        /**
+         * Triggers Google One-Tap authentication prompt.
+         */
+        function triggerGoogleSignIn() {
+            if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+                google.accounts.id.prompt((notification) => {
+                    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+                        showToast("Google sign in prompt closed.", "error");
+                    }
+                });
+            } else {
+                showToast("Google Identity Services is loading. Please wait a moment...", "error");
+            }
+        }
+
+        /**
+         * Decodes a Google JWT credential without external libraries by parsing base64url payload.
+         */
+        function parseJwt(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(
+                    atob(base64)
+                        .split('')
+                        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                        .join('')
+                );
+                return JSON.parse(jsonPayload);
+            } catch (e) {
+                console.error("JWT Decode error:", e);
+                return null;
+            }
+        }
+
+        /**
+         * Google callback fired when the user completes sign-in.
+         * Verifies the token with backend /api/auth/google when available.
+         */
+        async function handleGoogleCredentialResponse(response) {
+            if (!response || !response.credential) {
+                showToast("Google authentication failed.", "error");
+                return;
+            }
+            // Decode the ID token payload
+            const payload = parseJwt(response.credential);
+            if (!payload) {
+                showToast("Could not decode Google token.", "error");
+                return;
+            }
+
+            // Attempt backend token verification
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/google`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ credential: response.credential })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.user) {
+                        loginWithUser({
+                            name: data.user.name || payload.name || "Google User",
+                            email: data.user.email || payload.email || "",
+                            picture: data.user.picture || payload.picture || "",
+                            sub: data.user.sub || payload.sub || "",
+                            idToken: response.credential
+                        });
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn("[Auth] Backend token verification skipped:", e);
+            }
+
+            // Client-side session fallback
+            loginWithUser({
+                name: payload.name || payload.given_name || "Google User",
+                email: payload.email || "",
+                picture: payload.picture || "",
+                sub: payload.sub || "",
+                idToken: response.credential
+            });
+        }
+
+        /**
+         * Sets authentication state, persists session in localStorage, and updates UI.
+         */
+        function loginWithUser(userObj) {
+            currentUser = userObj;
+            isAuthenticated = true;
+            localStorage.setItem('promptly_google_user', JSON.stringify(userObj));
+            closeGoogleModal();
+            updateNavAuthUI();
+            showToast(`Welcome, ${userObj.name}!`);
+            loadLibrary(); // Reload user's saved prompt archive
+        }
+
+        /**
+         * Logs out the user, resets Google auto-select, and clears localStorage.
+         */
+        function signOut() {
+            currentUser = null;
+            isAuthenticated = false;
+            localStorage.removeItem('promptly_google_user');
+            if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+                google.accounts.id.disableAutoSelect();
+            }
+            updateNavAuthUI();
+            showToast("Signed out successfully.");
+            loadLibrary();
+        }
+
+        /**
+         * Restores user session from localStorage on page load so they stay logged in across reloads.
+         */
+        function restoreGoogleSession() {
+            const saved = localStorage.getItem('promptly_google_user');
+            if (saved) {
+                try {
+                    currentUser = JSON.parse(saved);
+                    isAuthenticated = true;
+                } catch(e) {
+                    localStorage.removeItem('promptly_google_user');
+                }
+            }
+            updateNavAuthUI();
+        }
+
+        /**
+         * Toggles the user profile menu dropdown in the top header.
+         */
+        function toggleUserDropdown(e) {
+            if (e) e.stopPropagation();
+            const dropdown = document.getElementById('user-dropdown-menu');
+            if (dropdown) dropdown.classList.toggle('hidden');
+        }
+
+        // Close user dropdown menu when clicking anywhere outside
+        window.addEventListener('click', (e) => {
+            const container = document.getElementById('user-menu-container');
+            const dropdown = document.getElementById('user-dropdown-menu');
+            if (dropdown && container && !container.contains(e.target)) {
+                dropdown.classList.add('hidden');
+            }
+        });
+
+        /**
+         * Updates the top header between "Sign in with Google" button and user avatar dropdown.
+         */
+        function updateNavAuthUI() {
+            const navArea = document.getElementById('nav-auth-area');
+            if (!navArea) return;
+
+            if (isAuthenticated && currentUser) {
+                // User is authenticated: Render avatar and user menu
+                const avatar = currentUser.picture 
+                    ? `<img src="${currentUser.picture}" alt="${currentUser.name}" referrerpolicy="no-referrer" class="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover shadow-sm border border-paper-border dark:border-navy-700" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-olive-600 text-white flex items-center justify-center font-bold text-[0.65rem]\'>${(currentUser.name || 'G').charAt(0).toUpperCase()}</div>';">`
+                    : `<div class="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-olive-600 text-white flex items-center justify-center font-bold text-[0.65rem] sm:text-xs shadow-sm">${(currentUser.name || 'G').charAt(0).toUpperCase()}</div>`;
+
+                const avatarLarge = currentUser.picture
+                    ? `<img src="${currentUser.picture}" alt="${currentUser.name}" referrerpolicy="no-referrer" class="w-9 h-9 rounded-full object-cover shadow-sm border border-paper-border dark:border-navy-700">`
+                    : `<div class="w-9 h-9 rounded-full bg-olive-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">${(currentUser.name || 'G').charAt(0).toUpperCase()}</div>`;
+
+                navArea.innerHTML = `
+                    <div class="relative" id="user-menu-container">
+                        <button onclick="toggleUserDropdown(event)" class="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1 rounded-full hover:bg-black/5 dark:hover:bg-white/5 transition-colors border border-paper-border/60 dark:border-navy-700/60">
+                            ${avatar}
+                            <span class="text-xs font-semibold text-ink-main dark:text-white hidden sm:block max-w-[120px] truncate">${currentUser.name}</span>
+                            <svg class="w-3.5 h-3.5 text-ink-muted dark:text-gray-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        
+                        <div id="user-dropdown-menu" class="hidden absolute right-0 mt-2 w-64 bg-paper-card dark:bg-navy-800 border border-paper-border dark:border-navy-700 rounded-2xl shadow-2xl p-4 z-50">
+                            <div class="flex items-center gap-3 pb-3 border-b border-paper-border/60 dark:border-navy-700">
+                                ${avatarLarge}
+                                <div class="overflow-hidden">
+                                    <p class="text-xs font-bold text-ink-main dark:text-white truncate">${currentUser.name}</p>
+                                    <p class="text-[0.65rem] text-ink-muted dark:text-gray-400 truncate">${currentUser.email || 'Google Account'}</p>
+                                </div>
+                            </div>
+                            <div class="pt-3 flex flex-col gap-2">
+                                <div class="flex items-center gap-2 text-[0.65rem] text-olive-600 dark:text-olive-400 font-semibold px-2 py-1 bg-olive-100 dark:bg-olive-900/30 rounded-lg">
+                                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                                    <span>Google Connected</span>
+                                </div>
+                                <button onclick="signOut()" class="w-full text-left flex items-center gap-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 px-3 py-2 rounded-xl transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                                    <span>Sign Out</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+            } else {
+                // User is not logged in: Render Sign in with Google button
+                navArea.innerHTML = `
+                    <button onclick="openGoogleModal()" class="flex items-center gap-2 text-[0.7rem] sm:text-xs font-semibold px-3.5 sm:px-4 py-2 bg-ink-main text-white dark:bg-white dark:text-navy-800 rounded-lg hover:bg-opacity-90 transition-all shadow-sm">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                        </svg>
+                        <span>Sign in with Google</span>
+                    </button>`;
+            }
+        }
+
+        // =====================================================================
+        // SECTION 5: UI UTILITIES (TOASTS & THEME TOGGLE)
+        // =====================================================================
+
+        /**
+         * Displays a toast alert notification at the bottom right of the screen.
+         * @param {string} message - Text message to display.
+         * @param {'success'|'error'|'info'} type - Alert style type.
+         */
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const isDark = document.documentElement.classList.contains('dark');
+            const bgColor = type === 'error' ? 'bg-red-500' : (type === 'info' ? 'bg-blue-600' : (isDark ? 'bg-olive-600' : 'bg-ink-main'));
+            const icon = type === 'error' ? '⚠️' : (type === 'info' ? 'ℹ️' : '✓');
+            
+            toast.className = `${bgColor} text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-lg shadow-xl text-xs sm:text-sm font-medium transform transition-all duration-300 translate-y-10 opacity-0 flex items-center gap-2 sm:gap-3 backdrop-blur-md`;
+            toast.innerHTML = `<span class="text-base sm:text-lg">${icon}</span> ${escapeHtml(message)}`; 
+            container.appendChild(toast);
+            
+            // Animate entrance
+            setTimeout(() => toast.classList.remove('translate-y-10', 'opacity-0'), 10);
+            // Animate exit and remove from DOM after 3 seconds
+            setTimeout(() => { 
+                toast.classList.add('translate-y-10', 'opacity-0'); 
+                setTimeout(() => toast.remove(), 300); 
+            }, 3000);
+        }
+
+        /**
+         * Toggles between light mode and dark mode, updating localStorage and SVG icons.
+         */
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark'); 
+            localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+            document.getElementById('moon-icon').classList.toggle('hidden', !document.documentElement.classList.contains('dark'));
+            document.getElementById('sun-icon').classList.toggle('hidden', document.documentElement.classList.contains('dark'));
+            renderGoogleButtons();
+        }
+
+        // =====================================================================
+        // SECTION 6: SLIDERS & TELEMETRY CONTROLS
+        // =====================================================================
+
+        /**
+         * Updates temperature numerical display and descriptive semantic badge.
+         * @param {string|number} val - Slider value from 0.0 to 1.5
+         */
+        function updateTempDisplay(val) {
+            const num = parseFloat(val);
+            const elVal = document.getElementById('val-temp');
+            const elDesc = document.getElementById('desc-temp');
+            if (elVal) elVal.textContent = num.toFixed(1);
+            if (elDesc) {
+                if (num <= 0.35) {
+                    elDesc.textContent = "Strict & Deterministic";
+                    elDesc.className = "text-[0.6rem] font-semibold text-blue-600 dark:text-blue-400";
+                } else if (num <= 0.85) {
+                    elDesc.textContent = "Balanced & Structured";
+                    elDesc.className = "text-[0.6rem] font-semibold text-olive-600 dark:text-olive-400";
+                } else {
+                    elDesc.textContent = "Creative & Exploratory";
+                    elDesc.className = "text-[0.6rem] font-semibold text-purple-600 dark:text-purple-400";
+                }
+            }
+        }
+
+        /**
+         * Updates token budget numerical display, target word count badge, and canvas telemetry.
+         * Calibrated to ~0.30 words per token (1 word ≈ 3.33 tokens) to keep prompts concise,
+         * punchy, and token-efficient so user tokens are not depleted rapidly.
+         * @param {string|number} val - Slider value from 256 to 4096 tokens
+         */
+        function updateTokensDisplay(val) {
+            const num = parseInt(val);
+            const elVal = document.getElementById('val-tokens');
+            const elDesc = document.getElementById('desc-tokens');
+            if (elVal) elVal.textContent = num;
+            if (elDesc) {
+                const estWords = Math.round(num * 0.30);
+                let label = "Standard";
+                if (num <= 384) {
+                    label = "Mini";
+                } else if (num <= 768) {
+                    label = "Compact";
+                } else if (num <= 1536) {
+                    label = "Standard";
+                } else if (num <= 2560) {
+                    label = "Deep";
+                } else {
+                    label = "Blueprint";
+                }
+                elDesc.textContent = `${label} (~${estWords}w)`;
+            }
+            // Dynamically update the token budget ceiling displayed on canvas output panes
+            [1, 2].forEach(i => {
+                const telEl = document.getElementById(`tel-tokens-${i}`);
+                if (telEl) {
+                    const currentTok = telEl.textContent.includes('/') ? telEl.textContent.split('/')[0].trim() : '0';
+                    telEl.textContent = `${currentTok} / ${num}`;
+                }
+            });
+        }
+
+        // =====================================================================
+        // SECTION 7: PROMPT ENGINEERING FRAMEWORKS DATA SCHEMAS
+        // =====================================================================
+        // Defines the parameter schemas, formulas, and input fields for all frameworks
+        const frameworksData = {
+            'CIF': { 
+                acronym: 'CIF', 
+                name: 'Clear Instruction Framing', 
+                tagline: 'Give the model one clear task — action verb, scope, depth, success criteria.', 
+                what: 'The foundational framework for assigning a single, specific task.', 
+                formula: 'Do [Task] regarding [Scope] at [Depth] to achieve [Success Criteria].',
+                fields: [
+                    { id: 'f_title', label: 'Reference Title *', type: 'input', placeholder: 'e.g., Python Code Generator' },
+                    { id: 'f_task', label: 'Task *', type: 'textarea', placeholder: 'e.g. Write a Python script to automate image resizing' },
+                    { id: 'f_scope', label: 'Scope & Context', type: 'textarea', placeholder: 'e.g. For a beginner developer using Pillow' },
+                    { id: 'f_depth', label: 'Depth', type: 'select', options: ['Standard Overview', 'Detailed', 'Brief'] },
+                    { id: 'f_criteria', label: 'Success Criteria', type: 'textarea', placeholder: 'e.g. Include comments, error handling, and example usage.' }
+                ]
+            },
+            'RTF': { 
+                acronym: 'RTF', 
+                name: 'Role · Task · Format', 
+                tagline: 'The fastest, most reliable everyday framework.', 
+                what: 'Lightning-fast framework for setting persona boundaries.', 
+                formula: 'Act as a [Role] and do [Task]. Format the output as [Format].',
+                fields: [
+                    { id: 'f_title', label: 'Reference Title *', type: 'input', placeholder: 'e.g., Senior Explainer' },
+                    { id: 'f_role', label: 'Role *', type: 'input', placeholder: 'e.g. Senior Software Architect' },
+                    { id: 'f_task', label: 'Task *', type: 'textarea', placeholder: 'e.g. Explain REST APIs vs GraphQL to a junior developer' },
+                    { id: 'f_format', label: 'Format', type: 'input', placeholder: 'e.g. Bulleted comparison table with pros and cons' }
+                ]
+            },
+            'RACE': { 
+                acronym: 'RACE', 
+                name: 'Role · Action · Context · Expectation', 
+                tagline: 'Add context and explicit expectations. The workhorse for serious prompts.', 
+                what: 'A robust framework for professional tasks that need deep background knowledge.', 
+                formula: 'As a [Role], perform [Action] using [Context]. I expect [Expectation].',
+                fields: [
+                    { id: 'f_title', label: 'Reference Title *', type: 'input', placeholder: 'e.g., Marketing Email Writer' },
+                    { id: 'f_role', label: 'Role *', type: 'input', placeholder: 'e.g. Lead Product Marketing Manager' },
+                    { id: 'f_action', label: 'Action *', type: 'textarea', placeholder: 'e.g. Draft an announcement email' },
+                    { id: 'f_context', label: 'Context', type: 'textarea', placeholder: 'e.g. Launching a new AI prompt design studio for developers.' },
+                    { id: 'f_expectation', label: 'Expectation', type: 'textarea', placeholder: 'e.g. Compelling tone, 200 words, with a clear Call to Action.' }
+                ]
+            },
+            'TAG': { 
+                acronym: 'TAG', 
+                name: 'Task · Action · Goal', 
+                tagline: 'Outcome-first prompting. State the task, the action, and the goal you\'re optimizing for.', 
+                what: 'A goal-oriented framework for strategic outputs.', 
+                formula: 'Your task is [Task]. Do this by [Action] in order to achieve [Goal].',
+                fields: [
+                    { id: 'f_title', label: 'Reference Title *', type: 'input', placeholder: 'e.g., Feedback Analyzer' },
+                    { id: 'f_task', label: 'Task *', type: 'input', placeholder: 'e.g. Synthesize user feedback reviews' },
+                    { id: 'f_action', label: 'Action', type: 'textarea', placeholder: 'e.g. Categorize feedback into bugs, requests, and praise' },
+                    { id: 'f_goal', label: 'Goal *', type: 'textarea', placeholder: 'e.g. Identify top 3 features to build next sprint' }
+                ]
+            },
+            'CRISPE': { 
+                acronym: 'CRISPE', 
+                name: 'Capacity · Role · Insight · Statement · Personality · Experiment', 
+                tagline: 'The heavy framework. Use when the answer needs depth, perspective, and variation.', 
+                what: 'A highly structured framework for complex, nuanced generations.', 
+                formula: 'Act in [Capacity]. Here is [Insight]. Make a [Statement] with [Personality] to test [Experiment].',
+                fields: [
+                    { id: 'f_title', label: 'Reference Title *', type: 'input', placeholder: 'e.g., Academic Reviewer' },
+                    { id: 'f_capacity', label: 'Capacity & Role *', type: 'input', placeholder: 'e.g. Principal AI Research Scientist' },
+                    { id: 'f_insight', label: 'Insight', type: 'textarea', placeholder: 'e.g. Small local models struggle with structured prompt expansion without clear constraints.' },
+                    { id: 'f_statement', label: 'Statement / Task *', type: 'textarea', placeholder: 'e.g. Propose 3 prompt architecture designs.' },
+                    { id: 'f_personality', label: 'Personality', type: 'input', placeholder: 'e.g. Rigorous, analytical, academic' },
+                    { id: 'f_experiment', label: 'Experiment', type: 'textarea', placeholder: 'e.g. Provide benchmark test queries for each architecture.' }
+                ]
+            }
+        };
+
+        // =====================================================================
+        // SECTION 8: STUDIO WORKSPACE STATE & VIEW LIFECYCLE
+        // =====================================================================
+        let activeFrameworkId = null;        // Active framework ('CIF', 'RTF', etc.)
+        let selectedModels = ['ChatGPT'];    // Selected target models (up to 2)
+        let generatedRawText = ["", ""];     // Stores raw text responses for Pane 1 and Pane 2
+
+        /**
+         * Switches the view from Studio back to the Index / Home screen.
+         */
+        function goHome() {
+            // Stop any active speech recognition session
+            if (typeof stopVoiceTyping === 'function') stopVoiceTyping();
+            
+            const homeView = document.getElementById('home-view');
+            const studioView = document.getElementById('studio-view');
+            
+            studioView.classList.remove('opacity-100', 'translate-y-0'); 
+            studioView.classList.add('opacity-0', 'translate-y-10');
+            
+            setTimeout(() => {
+                studioView.style.display = 'none'; 
+                homeView.style.display = 'block'; 
+                window.scrollTo(0, 0);
+                setTimeout(() => { 
+                    homeView.classList.remove('opacity-0', '-translate-y-10'); 
+                    homeView.classList.add('opacity-100', 'translate-y-0'); 
+                }, 50);
+                loadLibrary(); // Reload saved prompts archive
+            }, 300);
+        }
+
+        /**
+         * Opens the Studio view for the chosen framework ID and dynamically builds input fields.
+         * Appends microphone buttons next to input fields using voice.js.
+         * @param {string} fwId - The framework identifier ('CIF', 'RTF', 'RACE', 'TAG', 'CRISPE')
+         */
+        function openStudio(fwId) {
+            activeFrameworkId = fwId; 
+            const data = frameworksData[fwId];
+            const homeView = document.getElementById('home-view');
+            const studioView = document.getElementById('studio-view');
+            
+            homeView.classList.remove('opacity-100', 'translate-y-0'); 
+            homeView.classList.add('opacity-0', '-translate-y-10');
+
+            setTimeout(() => {
+                homeView.style.display = 'none'; 
+                studioView.style.display = 'block'; 
+                window.scrollTo(0, 0);
+
+                // Populate framework header text
+                document.getElementById('s-acronym').textContent = data.acronym; 
+                document.getElementById('s-name').textContent = data.name;
+                document.getElementById('s-tagline').textContent = data.tagline; 
+
+                // Reset canvas outputs and clear generated text memory
+                resetOutputs();
+
+                // Dynamically render form fields based on the framework's schema
+                const formDiv = document.getElementById('dynamic-form'); 
+                formDiv.innerHTML = ''; 
+                data.fields.forEach(field => {
+                    let inputHtml = field.type === 'textarea' 
+                        ? `<textarea id="${field.id}" class="w-full bg-transparent text-ink-main dark:text-gray-100 outline-none resize-none input-match param-input relative z-20" placeholder="${field.placeholder}" rows="3"></textarea>` 
+                        : field.type === 'select' 
+                        ? `<select id="${field.id}" class="w-full bg-transparent text-ink-main dark:text-gray-100 outline-none input-match param-input relative z-20 cursor-pointer appearance-none"><option value="" disabled selected>Select...</option>${field.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select>`
+                        : `<input type="text" id="${field.id}" class="w-full bg-transparent text-ink-main dark:text-gray-100 outline-none input-match param-input relative z-20" placeholder="${field.placeholder}">`;
+
+                    // Generate microphone dictation button for text and textarea fields
+                    const micBtn = (field.type !== 'select' && typeof micButtonHtml === 'function')
+                        ? micButtonHtml(field.id)
+                        : '';
+
+                    formDiv.innerHTML += `
+                        <div class="mb-3 sm:mb-4">
+                            <label class="form-label text-[0.7rem] sm:text-[0.8rem] uppercase tracking-wider font-semibold text-ink-muted dark:text-gray-300 mb-1.5 sm:mb-2 block ml-1">${field.label}</label>
+                            <div class="ide-input-wrapper bg-white/50 dark:bg-navy-900/50 backdrop-blur-md shadow-sm flex items-center gap-1.5 border border-white/20 dark:border-navy-600/30 transition-colors focus-within:border-olive-500">
+                                ${inputHtml}
+                                ${micBtn}
+                            </div>
+                        </div>`;
+                });
+                
+                // Attach input & change listeners to update the parameter readiness bar in real time
+                document.querySelectorAll('.param-input').forEach(input => { 
+                    input.addEventListener('input', updateReadinessBar); 
+                    input.addEventListener('change', updateReadinessBar); 
+                });
+                updateReadinessBar();
+
+                // Transition studio view in smoothly
+                setTimeout(() => { 
+                    studioView.classList.remove('opacity-0', 'translate-y-10'); 
+                    studioView.classList.add('opacity-100', 'translate-y-0'); 
+                }, 50);
+            }, 300);
+        }
+
+        /**
+         * Calculates what percentage of parameter inputs have been filled out and updates the density bar.
+         */
+        function updateReadinessBar() {
+            const inputs = document.querySelectorAll('.param-input');
+            let filled = 0; 
+            inputs.forEach(i => { if(i.value && i.value.trim().length > 0) filled++; });
+            const pct = inputs.length > 0 ? (filled / inputs.length) * 100 : 0;
+            const bar = document.getElementById('readiness-bar');
+            bar.style.width = `${pct}%`;
+            bar.style.backgroundColor = pct === 100 ? '#658147' : '#9CA3AF';
+        }
+
+        /**
+         * Handles selecting / toggling target AI engines (up to 2 for side-by-side comparison).
+         */
+        function selectModel(modelName, btnElement) {
+            if (selectedModels.includes(modelName)) {
+                if (selectedModels.length === 1) return; // Keep at least one model active
+                selectedModels = selectedModels.filter(m => m !== modelName);
+                btnElement.classList.remove('selected');
+            } else {
+                // If already at 2 models, deselect the earliest selected one
+                if (selectedModels.length >= 2) {
+                    const first = selectedModels.shift();
+                    const prevBtn = document.getElementById(`btn-${first}`);
+                    if (prevBtn) prevBtn.classList.remove('selected');
+                }
+                selectedModels.push(modelName);
+                btnElement.classList.add('selected');
+            }
+            updateOutputGrid();
+        }
+
+        /**
+         * Toggles the Workspace Canvas grid layout between 1-pane (single model) and 2-pane (dual comparison).
+         */
+        function updateOutputGrid() {
+            const grid = document.getElementById('output-grid');
+            const pane2 = document.getElementById('pane-2');
+            
+            if (selectedModels.length === 2) {
+                grid.classList.replace('grid-cols-1', 'lg:grid-cols-2'); 
+                pane2.classList.remove('hidden'); 
+                pane2.classList.add('flex');
+            } else {
+                grid.classList.replace('lg:grid-cols-2', 'grid-cols-1'); 
+                pane2.classList.add('hidden'); 
+                pane2.classList.remove('flex');
+            }
+            
+            document.getElementById('badge-1').textContent = selectedModels[0];
+            if (selectedModels[1]) {
+                document.getElementById('badge-2').textContent = selectedModels[1];
+            }
+        }
+
+        /**
+         * Resets canvas output panes, text buffers, and telemetry counters.
+         */
+        function resetOutputs() {
+            generatedRawText = ["", ""];
+            document.getElementById('action-buttons').classList.add('hidden');
+            [1, 2].forEach(i => {
+                const out = document.getElementById(`output-${i}`);
+                const skeleton = document.getElementById(`skeleton-${i}`);
+                
+                skeleton.classList.add('hidden');
+                skeleton.classList.remove('flex');
+                
+                out.classList.remove('hidden');
+                out.textContent = "Awaiting payload..."; 
+                out.style.color = "#73736E"; 
+                out.classList.remove('typing-cursor');
+                
+                const budgetTokens = document.getElementById('param-tokens') ? document.getElementById('param-tokens').value : '512';
+                document.getElementById(`tel-words-${i}`).textContent = "0"; 
+                document.getElementById(`tel-tokens-${i}`).textContent = `0 / ${budgetTokens}`;
+            });
+            stopFactRotation();
+        }
+
+        /**
+         * Escapes special characters to safely display in HTML and avoid script/tag breakage.
+         */
+        function escapeHtml(string) {
+            if (!string) return '';
+            return String(string)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        /**
+         * Helper function to escape special regex characters.
+         */
+        function escapeRegex(string) { 
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
+        }
+
+        /**
+         * Scans generated output text and wraps words matching user parameter values in clickable highlight spans.
+         * Clicking a highlight jumps keyboard focus directly to that input field.
+         */
+        function applyHighlights(text, inputsArray) {
+            let safeText = escapeHtml(text);
+            inputsArray.sort((a,b) => b.val.length - a.val.length).forEach(item => {
+                if (item.val && item.val.length > 3) {
+                    const safeVal = escapeHtml(item.val);
+                    const regex = new RegExp(`(${escapeRegex(safeVal)})`, 'gi');
+                    safeText = safeText.replace(regex, `<span class="param-highlight" onclick="document.getElementById('${item.id}').focus()" title="Click to edit">${safeVal}</span>`);
+                }
+            });
+            return safeText;
+        }
+
+        /**
+         * Animates output text onto the canvas character-by-character with a blinking cursor.
+         */
+        async function typeWriterEffect(text, element, rawInputsData) {
+            element.textContent = ''; 
+            element.classList.add('typing-cursor');
+            const speed = Math.max(2, Math.min(12, 800 / text.length)); 
+            let i = 0;
+            return new Promise(resolve => {
+                function type() {
+                    if (i < text.length) {
+                        element.textContent += text.charAt(i);
+                        i++;
+                        setTimeout(type, speed);
+                    } else {
+                        element.classList.remove('typing-cursor');
+                        element.innerHTML = applyHighlights(text, rawInputsData);
+                        resolve();
+                    }
+                }
+                type();
+            });
+        }
+
+        // =====================================================================
+        // SECTION 9: AI GENERATION & BACKEND API CALLS
+        // =====================================================================
+
+        /**
+         * Validates parameter inputs, constructs prompt engineering payload,
+         * and calls the Flask backend (/api/generate) to invoke Gemini API.
+         */
+        async function generatePrompt() {
+            // Authentication Guard: Require Google sign-in before generating prompts
+            if (!isAuthenticated || !currentUser) {
+                showToast("Authentication required. Please sign in with Google.", "error");
+                openGoogleModal();
+                return;
+            }
+
+            const data = frameworksData[activeFrameworkId];
+            let missingRequired = false; 
+            let rawInputsText = ""; 
+            let rawInputsData = []; 
+
+            // Collect values from the dynamic form fields
+            data.fields.forEach(field => {
+                if (field.id === 'f_title') return; // Reference title is used when saving, not in generation
+                const el = document.getElementById(field.id);
+                if (!el) return;
+                const val = el.value.trim();
+                if (field.label.includes('*') && !val) missingRequired = true;
+                if (val) {
+                    const cleanLabel = field.label.replace(' *', '').toUpperCase();
+                    rawInputsText += `[${cleanLabel}]: ${val}\n`; 
+                    rawInputsData.push({ id: field.id, val: val });
+                }
+            });
+
+            // Input Validation Guard
+            if (missingRequired) { 
+                showToast("Missing required parameters.", "error"); 
+                return; 
+            }
+            
+            // Sliders values
+            const tempVal = document.getElementById('param-temp').value;
+            const tokenVal = document.getElementById('param-tokens').value;
+
+            // Update button state to "Processing..."
+            const btn = document.getElementById('generate-btn');
+            btn.querySelector('span').textContent = "Processing..."; 
+            btn.classList.add('opacity-80', 'cursor-wait');
+            
+            // Build and execute fetch requests for all selected models
+            const fetchPromises = selectedModels.map((model, index) => {
+                const outBox = document.getElementById(`output-${index+1}`);
+                const skeleton = document.getElementById(`skeleton-${index+1}`);
+                
+                outBox.classList.add('hidden'); 
+                skeleton.classList.remove('hidden');
+                skeleton.classList.add('flex');
+                
+                // Start rotating AI educational tips in the loading box
+                startFactRotation(index + 1);
+
+                // Build instructions for the target framework
+                const systemPrompt = `Framework: ${data.name} (${data.acronym})\nRules: ${data.what}\nFormula: ${data.formula}\nInputs:\n${rawInputsText}`;
+
+                // Send generation request to Flask backend
+                return fetch(`${API_BASE}/api/generate`, {
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ 
+                        system_prompt: systemPrompt,
+                        model: model,
+                        temperature: parseFloat(tempVal),
+                        max_tokens: parseInt(tokenVal)
+                    })
+                }).then(async r => {
+                    if (!r.ok) {
+                        const errData = await r.json().catch(() => ({}));
+                        throw new Error(errData.error || `HTTP ${r.status}`);
+                    }
+                    return r.json();
+                })
+                .then(result => ({ 
+                    index: index+1, 
+                    text: result.text,
+                    tokens: result.tokens,
+                    words: result.words,
+                    budget_tokens: result.budget_tokens,
+                    target_words: result.target_words
+                }))
+                .catch(err => ({ index: index+1, error: err.message }));
+            });
+
+            try {
+                // Await all parallel model responses
+                const results = await Promise.all(fetchPromises);
+                document.getElementById('action-buttons').classList.remove('hidden'); 
+                document.getElementById('action-buttons').classList.add('flex');
+                
+                for (const res of results) {
+                    const outBox = document.getElementById(`output-${res.index}`);
+                    const skeleton = document.getElementById(`skeleton-${res.index}`);
+                    
+                    skeleton.classList.add('hidden'); 
+                    skeleton.classList.remove('flex');
+                    outBox.classList.remove('hidden');
+                    
+                    if (res.error) { 
+                        outBox.textContent = `Error: ${res.error}`; 
+                        outBox.style.color = "#EF4444"; 
+                    } else {
+                        outBox.style.color = document.documentElement.classList.contains('dark') ? "#F3F4F6" : "#2C2C2A"; 
+                        generatedRawText[res.index-1] = res.text; 
+                        // Animate text appearance and calculate word/token metrics
+                        typeWriterEffect(res.text, outBox, rawInputsData); 
+                        updateTelemetry(res.index, res.text, res.tokens, res.words);
+                    }
+                }
+                showToast("Payload constructed successfully.");
+            } catch (error) { 
+                showToast("Connection failed.", "error"); 
+            } finally { 
+                btn.querySelector('span').textContent = "Construct Payload"; 
+                btn.classList.remove('opacity-80', 'cursor-wait'); 
+                stopFactRotation();
+            }
+        }
+
+        /**
+         * Updates real-time word and token telemetry counters for an output pane.
+         * Uses exact token count returned from Gemini's usageMetadata.candidatesTokenCount.
+         */
+        function updateTelemetry(paneNum, text, apiTokens, apiWords) {
+            const wordCount = (typeof apiWords === 'number' && apiWords > 0)
+                ? apiWords 
+                : (text.trim() ? text.trim().split(/\s+/).length : 0);
+
+            const budgetTokens = document.getElementById('param-tokens') ? parseInt(document.getElementById('param-tokens').value) : 512;
+            
+            // Exact tokens returned directly by Gemini usageMetadata API, or fallback to 0.30 word ratio
+            const actualTokens = (typeof apiTokens === 'number' && apiTokens > 0)
+                ? apiTokens
+                : Math.round(wordCount / 0.30);
+            
+            const elWords = document.getElementById(`tel-words-${paneNum}`);
+            const elTokens = document.getElementById(`tel-tokens-${paneNum}`);
+            if (elWords) elWords.textContent = wordCount;
+            if (elTokens) {
+                elTokens.textContent = `${actualTokens} / ${budgetTokens}`;
+                // Color alert when approaching the requested token budget limit
+                if (actualTokens >= budgetTokens * 0.95) {
+                    elTokens.classList.add('text-amber-500', 'font-bold');
+                } else {
+                    elTokens.classList.remove('text-amber-500', 'font-bold');
+                }
+            }
+        }
+
+        // =====================================================================
+        // SECTION 10: CLIPBOARD & PROMPT LIBRARY PERSISTENCE
+        // =====================================================================
+
+        /**
+         * Copies the generated prompt from a specified Canvas Pane (1 or 2) to clipboard.
+         * @param {number} paneNum - Target output pane (defaults to 1).
+         */
+        function copyPrompt(paneNum = 1) {
+            const text = generatedRawText[paneNum - 1] || (document.getElementById(`output-${paneNum}`) ? document.getElementById(`output-${paneNum}`).innerText : '');
+            if (!text || text.startsWith("Awaiting payload...") || text.startsWith("Error:")) {
+                showToast("No generated prompt to copy.", "error");
+                return;
+            }
+            navigator.clipboard.writeText(text)
+                .then(() => showToast(`Copied ${selectedModels[paneNum - 1] || 'Pane ' + paneNum} to clipboard!`))
+                .catch(() => showToast("Failed to copy.", "error"));
+        }
+
+        /**
+         * Saves a generated prompt from a specified Canvas Pane to SQLite via POST /api/prompts.
+         * @param {number} paneNum - Target output pane (defaults to 1).
+         */
+        async function savePrompt(paneNum = 1) {
+            const promptText = generatedRawText[paneNum - 1]; 
+            const titleEl = document.getElementById('f_title');
+            const titleInput = titleEl ? titleEl.value.trim() : '';
+
+            if (!promptText || promptText === "") { 
+                showToast("Generate prompt before saving.", "error"); 
+                return; 
+            }
+            if (!titleInput) { 
+                showToast("Reference Title required.", "error"); 
+                if (titleEl) titleEl.focus(); 
+                return; 
+            }
+
+            const userIdentifier = currentUser ? (currentUser.email || currentUser.name) : null;
+            if (!userIdentifier) { 
+                showToast("Please sign in with Google to save prompts.", "error"); 
+                openGoogleModal(); 
+                return; 
+            }
+
+            const modelLabel = selectedModels[paneNum - 1] || 'Default';
+            const frameworkLabel = `${activeFrameworkId} (${modelLabel})`;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/prompts`, {
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        username: userIdentifier, 
+                        title: titleInput, 
+                        framework: frameworkLabel, 
+                        prompt_text: promptText 
+                    })
+                });
+                if (res.ok) {
+                    showToast("Saved to Archive."); 
+                    loadLibrary();
+                } else {
+                    showToast("Database error.", "error");
+                }
+            } catch (e) { 
+                showToast("Connection failed.", "error"); 
+            }
+        }
+
+        /**
+         * Fetches saved prompts for the logged-in user from GET /api/prompts?username=...
+         * and renders interactive cards into the Archive section.
+         */
+        async function loadLibrary() {
+            const grid = document.getElementById('library-grid');
+            if (!grid) return;
+            
+            // If the user is logged out, show the Google Sign-In callout
+            if (!isAuthenticated || !currentUser) {
+                grid.innerHTML = `
+                    <div class="col-span-full py-12 flex flex-col items-center justify-center border border-dashed border-paper-border dark:border-navy-700 rounded-2xl bg-white/5 dark:bg-navy-900/10 text-center px-4">
+                        <div class="w-10 h-10 rounded-full bg-white dark:bg-navy-800 shadow-sm flex items-center justify-center mb-3">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24">
+                                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                            </svg>
+                        </div>
+                        <p class="text-sm font-semibold text-ink-main dark:text-gray-200 mb-1">Google Sign In Required</p>
+                        <p class="text-xs text-ink-muted dark:text-gray-400 mb-4 max-w-sm">Sign in with your Google account to view, copy, and manage your saved prompts.</p>
+                        <button onclick="openGoogleModal()" class="text-xs font-semibold px-4 py-2 bg-ink-main text-white dark:bg-white dark:text-navy-800 rounded-lg hover:opacity-90 transition-opacity shadow-sm">
+                            Sign in with Google
+                        </button>
+                    </div>`;
+                return;
+            }
+
+            const userIdentifier = currentUser.email || currentUser.name;
+            try {
+                // Fetch saved prompts scoped by Google username/email (backend returns newest first)
+                const res = await fetch(`${API_BASE}/api/prompts?username=${encodeURIComponent(userIdentifier)}`);
+                if (res.ok) {
+                    const prompts = await res.json();
+                    loadedPromptsCache = prompts; // Cache prompts for preview modal
+
+                    if (prompts.length === 0) { 
+                        grid.innerHTML = '<p class="text-sm text-ink-muted col-span-full py-8 text-center">Your archive is empty. Select a framework and generate a prompt to get started.</p>'; 
+                        return; 
+                    }
+                    
+                    // Render prompt cards with Copy and Delete actions (chronological newest first)
+                    grid.innerHTML = prompts.map((p, i) => `
+                        <div class="bg-paper-card/85 dark:bg-navy-800/85 backdrop-blur-xl border border-white/30 dark:border-navy-700/50 rounded-xl sm:rounded-2xl p-6 sm:p-8 flex flex-col transition-all duration-300 shadow-lg hover:shadow-xl animate-fade-in-up" style="animation-delay: ${1.6 + (0.05*(i%10))}s;">
+                            <div class="flex justify-between items-start mb-2 sm:mb-3">
+                                <span class="text-[0.6rem] sm:text-[0.65rem] uppercase tracking-widest text-ink-muted font-semibold">${escapeHtml(p.framework)}</span>
+                                <div class="flex items-center gap-1.5">
+                                    <button onclick="copyArchivePrompt(${i}, event)" title="Copy prompt text" class="p-1.5 rounded-lg text-ink-muted hover:text-ink-main dark:text-gray-400 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                                    </button>
+                                    <button onclick="deleteArchivePrompt(${p.id}, event)" title="Delete from archive" class="p-1.5 rounded-lg text-red-500/70 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                            <h3 class="text-base sm:text-lg font-semibold text-ink-main dark:text-white mb-2">${escapeHtml(p.title)}</h3>
+                            <div onclick="openPromptModalByIndex(${i})" class="bg-white/40 dark:bg-navy-900/40 border border-white/20 dark:border-navy-700/50 rounded-lg p-3 sm:p-4 mt-auto shadow-inner cursor-pointer hover:border-olive-500/50 transition-colors group">
+                                <p class="whitespace-pre-wrap font-mono text-[0.65rem] sm:text-xs text-ink-main dark:text-gray-300 leading-relaxed line-clamp-4">${escapeHtml(p.prompt_text)}</p>
+                                <span class="text-[0.6rem] text-olive-600 dark:text-olive-400 font-semibold mt-2 block opacity-0 group-hover:opacity-100 transition-opacity">Click to view full prompt →</span>
+                            </div>
+                        </div>`).join('');
+                }
+            } catch (e) { 
+                grid.innerHTML = '<p class="text-sm text-red-500 col-span-full py-8 text-center">Failed to load archive. Is the backend server running?</p>'; 
+            }
+        }
+
+        /**
+         * Copies text of a specific prompt in the archive directly from its card.
+         */
+        function copyArchivePrompt(index, event) {
+            if (event) event.stopPropagation();
+            const prompt = loadedPromptsCache[index];
+            if (!prompt || !prompt.prompt_text) return;
+            navigator.clipboard.writeText(prompt.prompt_text)
+                .then(() => showToast(`Copied "${prompt.title}" to clipboard!`))
+                .catch(() => showToast("Failed to copy.", "error"));
+        }
+
+        /**
+         * Deletes a prompt from SQLite via DELETE /api/prompts?id=...&username=...
+         */
+        async function deleteArchivePrompt(id, event) {
+            if (event) event.stopPropagation();
+            if (!confirm("Are you sure you want to delete this prompt from your archive?")) return;
+
+            const userIdentifier = currentUser ? (currentUser.email || currentUser.name) : null;
+            if (!userIdentifier) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/api/prompts?id=${id}&username=${encodeURIComponent(userIdentifier)}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    showToast("Prompt deleted.");
+                    loadLibrary();
+                } else {
+                    showToast("Failed to delete prompt.", "error");
+                }
+            } catch(e) {
+                showToast("Connection failed.", "error");
+            }
+        }
+
+        /**
+         * Opens the full prompt inspection modal for a saved prompt.
+         */
+        function openPromptModalByIndex(index) {
+            const prompt = loadedPromptsCache[index];
+            if (!prompt) return;
+
+            document.getElementById('prompt-modal-title').textContent = prompt.title;
+            document.getElementById('prompt-modal-framework').textContent = prompt.framework;
+            document.getElementById('prompt-modal-date').textContent = prompt.created_at ? `Saved on ${prompt.created_at}` : '';
+            document.getElementById('prompt-modal-text').textContent = prompt.prompt_text;
+
+            const backdrop = document.getElementById('prompt-modal-backdrop');
+            const card = document.getElementById('prompt-modal-card');
+            backdrop.classList.remove('hidden'); void backdrop.offsetWidth;
+            backdrop.classList.remove('opacity-0'); card.classList.remove('scale-95');
+        }
+
+        /**
+         * Closes the full prompt inspection modal.
+         */
+        function closePromptModal() {
+            const backdrop = document.getElementById('prompt-modal-backdrop');
+            const card = document.getElementById('prompt-modal-card');
+            backdrop.classList.add('opacity-0'); card.classList.add('scale-95');
+            setTimeout(() => backdrop.classList.add('hidden'), 400);
+        }
+
+        /**
+         * Copies text from the prompt inspection modal.
+         */
+        function copyModalPrompt() {
+            const text = document.getElementById('prompt-modal-text').textContent;
+            navigator.clipboard.writeText(text)
+                .then(() => showToast("Full prompt copied to clipboard!"))
+                .catch(() => showToast("Failed to copy.", "error"));
+        }
+    </script>
+</body>
+</html>
